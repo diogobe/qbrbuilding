@@ -1,0 +1,6 @@
+{
+  "name": "ImpactStream",
+  "description": "Enterprise-grade QBR, EBR, and one-page customer report generator for strategic Customer Success managers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

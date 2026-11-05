@@ -1,0 +1,93 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Outfit:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  --font-serif-classic: "Lora", serif;
+  --font-serif-premium: "Playfair Display", serif;
+  --font-sans-ops: "Outfit", sans-serif;
+  
+  --color-enterprise-950: #0f172a;
+  --color-enterprise-900: #1e293b;
+  --color-enterprise-800: #334155;
+  --color-enterprise-700: #475569;
+  --color-enterprise-600: #64748b;
+  --color-enterprise-500: #94a3b8;
+  --color-enterprise-400: #cbd5e1;
+  --color-enterprise-300: #e2e8f0;
+  --color-enterprise-200: #f1f5f9;
+  --color-enterprise-100: #f8fafc;
+  
+  --color-action-blue: #2563eb;
+  --color-action-hover: #1d4ed8;
+  --color-success-green: #10b981;
+  --color-danger-red: #ef4444;
+  --color-warning-amber: #f59e0b;
+}
+
+@layer base {
+  body {
+    @apply font-sans bg-slate-50 text-slate-900 antialiased selection:bg-blue-500/20 selection:text-blue-900;
+  }
+}
+
+/* Custom scrollbars for enterprise design feel */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Aspect ratio helpers for 16:9 slides */
+.slide-aspect-ratio {
+  aspect-ratio: 16 / 9;
+}
+
+@media print {
+  body {
+    background-color: white !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  
+  /* Force color and background printing */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  /* Target slide elements for exact print pages */
+  .report-slide {
+    width: 100% !important;
+    height: auto !important;
+    aspect-ratio: 16 / 9 !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+    padding: 2.5rem !important; /* Keep nice padding inside print */
+  }
+
+  .print\:hidden {
+    display: none !important;
+  }
+}
+
+
