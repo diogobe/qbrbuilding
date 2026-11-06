@@ -15,16 +15,29 @@ export type EngagementLevel = 'High' | 'Medium' | 'Low';
 export type MilestoneStatus = 'Planned' | 'In Progress' | 'Completed' | 'At Risk';
 export type MilestoneImpact = 'Operational Efficiency' | 'Financial Growth' | 'Risk Mitigation' | 'Strategic Expansion';
 
+export interface CustomerCompany {
+  id: string;
+  name: string;
+  industry: string;
+  tier: AccountTier;
+  domain?: string;
+  logoUrl?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface Account {
   id: string;
-  companyName: string;
+  companyId?: string;
+  /** @deprecated Use companyId and lookup via CustomerCompany. Kept as temporary backward-compatibility bridge. */
+  companyName?: string;
   industry: string;
   contractStartDate: string;
   contractRenewalDate: string;
-  annualRecurringRevenue: number;
+  annualRecurringRevenue?: number;
   accountTier: AccountTier;
   businessUnit: string;
-  healthScore: number; // 1-100
+  healthScore?: number; // 1-100, optional when unknown
 }
 
 export interface Stakeholder {
@@ -72,3 +85,13 @@ export interface FullAccountContext {
 }
 
 export type ReportType = 'EBR' | 'QBR' | 'OPR';
+
+export interface ImpactStreamStateV2 {
+  schemaVersion: 2;
+  profile: UserProfile;
+  companies: CustomerCompany[];
+  accounts: Account[];
+  objectives: PrimaryObjective[];
+  stakeholders: Stakeholder[];
+  milestones: SuccessMilestone[];
+}

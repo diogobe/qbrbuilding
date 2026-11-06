@@ -1,4 +1,4 @@
-import { UserProfile, Account, PrimaryObjective, Stakeholder, SuccessMilestone, FullAccountContext } from './types';
+import { UserProfile, CustomerCompany, Account, PrimaryObjective, Stakeholder, SuccessMilestone, FullAccountContext, ImpactStreamStateV2 } from './types';
 
 export const defaultUserProfile: UserProfile = {
   fullName: "Sarah Chen",
@@ -10,9 +10,34 @@ export const defaultUserProfile: UserProfile = {
   linkedinUrl: "https://linkedin.com/in/sarah-chen-customer-success"
 };
 
+export const sampleCompanies: CustomerCompany[] = [
+  {
+    id: "comp-1",
+    name: "Nexus Infrastructure Ltd.",
+    industry: "Cloud Infrastructure & Hosting",
+    tier: "Strategic",
+    createdAt: "2024-03-01T00:00:00.000Z"
+  },
+  {
+    id: "comp-2",
+    name: "Acme Dynamics Corp",
+    industry: "Industrial Software & RPA",
+    tier: "Enterprise",
+    createdAt: "2025-01-15T00:00:00.000Z"
+  },
+  {
+    id: "comp-3",
+    name: "CoreSentry Networks",
+    industry: "Cybersecurity & Telecom",
+    tier: "Strategic",
+    createdAt: "2024-09-01T00:00:00.000Z"
+  }
+];
+
 export const sampleAccounts: Account[] = [
   {
     id: "acc-1",
+    companyId: "comp-1",
     companyName: "Nexus Infrastructure Ltd.",
     industry: "Cloud Infrastructure & Hosting",
     contractStartDate: "2024-03-01",
@@ -24,6 +49,7 @@ export const sampleAccounts: Account[] = [
   },
   {
     id: "acc-2",
+    companyId: "comp-2",
     companyName: "Acme Dynamics Corp",
     industry: "Industrial Software & RPA",
     contractStartDate: "2025-01-15",
@@ -35,6 +61,7 @@ export const sampleAccounts: Account[] = [
   },
   {
     id: "acc-3",
+    companyId: "comp-3",
     companyName: "CoreSentry Networks",
     industry: "Cybersecurity & Telecom",
     contractStartDate: "2024-09-01",
@@ -272,26 +299,192 @@ export const sampleMilestones: SuccessMilestone[] = [
   }
 ];
 
-export const getInitialState = () => {
-  // Try loading from localStorage, otherwise return sample data
-  try {
-    const savedProfile = localStorage.getItem('impactstream_profile');
-    const savedAccounts = localStorage.getItem('impactstream_accounts');
-    const savedObjectives = localStorage.getItem('impactstream_objectives');
-    const savedStakeholders = localStorage.getItem('impactstream_stakeholders');
-    const savedMilestones = localStorage.getItem('impactstream_milestones');
+export const STORAGE_KEYS = {
+  // Legacy v1 keys (preserved intact for rollback safety)
+  LEGACY_PROFILE: 'impactstream_profile',
+  LEGACY_ACCOUNTS: 'impactstream_accounts',
+  LEGACY_OBJECTIVES: 'impactstream_objectives',
+  LEGACY_STAKEHOLDERS: 'impactstream_stakeholders',
+  LEGACY_MILESTONES: 'impactstream_milestones',
 
+  // Modern v2 keys (isolated namespace)
+  V2_VERSION: 'impactstream_v2_schema_version',
+  V2_PROFILE: 'impactstream_v2_profile',
+  V2_COMPANIES: 'impactstream_v2_companies',
+  V2_ACCOUNTS: 'impactstream_v2_accounts',
+  V2_OBJECTIVES: 'impactstream_v2_objectives',
+  V2_STAKEHOLDERS: 'impactstream_v2_stakeholders',
+  V2_MILESTONES: 'impactstream_v2_milestones'
+};
+
+/**
+ * Non-destructive migration function that transforms v1 legacy state into normalized v2 schema.
+ * 
+ * Rules:
+ * 1. Checks schemaVersion === 2. If present, returns state.
+ * 2. Does NOT substitute 0 for unknown/missing data; missing ARR and healthScore remain undefined.
+ * 3. Extracts distinct CustomerCompany entities deterministically based on trimmed companyName.
+ * 4. Links each account to companyId while preserving companyName as a backward-compatibility bridge.
+ */
+export function migrateLegacyState(raw: any): ImpactStreamStateV2 {
+  if (raw && raw.schemaVersion === 2 && Array.isArray(raw.companies) && raw.companies.length > 0) {
+    return raw as ImpactStreamStateV2;
+  }
+
+  const legacyAccounts: any[] = Array.isArray(raw?.accounts) ? raw.accounts : [];
+  const companies: CustomerCompany[] = [];
+  const migratedAccounts: Account[] = [];
+
+  legacyAccounts.forEach((legacyAcc: any, idx: number) => {
+    const rawCompanyName = typeof legacyAcc.companyName === 'string' && legacyAcc.companyName.trim()
+      ? legacyAcc.companyName.trim()
+      : 'Unassigned Customer';
+
+    // Find or create company deterministically
+    let company = companies.find(c => c.name.toLowerCase() === rawCompanyName.toLowerCase());
+    if (!company) {
+      company = {
+        id: `comp-${idx + 1}-${Date.now()}`,
+        name: rawCompanyName,
+        industry: legacyAcc.industry || 'Unspecified',
+        tier: legacyAcc.accountTier || 'Enterprise',
+        createdAt: new Date().toISOString()
+      };
+      companies.push(company);
+    }
+
+    // Mandatory Rule: Do NOT use 0 as a substitute for unknown data. Missing values remain undefined.
+    const arrVal = typeof legacyAcc.annualRecurringRevenue === 'number' && !isNaN(legacyAcc.annualRecurringRevenue)
+      ? legacyAcc.annualRecurringRevenue
+      : undefined;
+
+    const healthVal = typeof legacyAcc.healthScore === 'number' && !isNaN(legacyAcc.healthScore)
+      ? legacyAcc.healthScore
+      : undefined;
+
+    migratedAccounts.push({
+      id: legacyAcc.id || `acc-${idx + 1}-${Date.now()}`,
+      companyId: company.id,
+      companyName: rawCompanyName, // Temporary deprecated bridge
+      industry: legacyAcc.industry || 'Unspecified',
+      contractStartDate: legacyAcc.contractStartDate || '',
+      contractRenewalDate: legacyAcc.contractRenewalDate || '',
+      annualRecurringRevenue: arrVal,
+      accountTier: legacyAcc.accountTier || 'Enterprise',
+      businessUnit: legacyAcc.businessUnit || 'General Operations',
+      healthScore: healthVal
+    });
+  });
+
+  const finalCompanies = companies.length > 0 ? companies : sampleCompanies;
+  const finalAccounts = migratedAccounts.length > 0 ? migratedAccounts : sampleAccounts;
+
+  return {
+    schemaVersion: 2,
+    profile: raw?.profile || defaultUserProfile,
+    companies: finalCompanies,
+    accounts: finalAccounts,
+    objectives: Array.isArray(raw?.objectives) ? raw.objectives : sampleObjectives,
+    stakeholders: Array.isArray(raw?.stakeholders) ? raw.stakeholders : sampleStakeholders,
+    milestones: Array.isArray(raw?.milestones) ? raw.milestones : sampleMilestones
+  };
+}
+
+export const getInitialState = (): ImpactStreamStateV2 => {
+  try {
+    // 1. First, check if promoted v2 state exists
+    const v2Version = localStorage.getItem(STORAGE_KEYS.V2_VERSION);
+    if (v2Version === '2') {
+      const savedProfile = localStorage.getItem(STORAGE_KEYS.V2_PROFILE);
+      const savedCompanies = localStorage.getItem(STORAGE_KEYS.V2_COMPANIES);
+      const savedAccounts = localStorage.getItem(STORAGE_KEYS.V2_ACCOUNTS);
+      const savedObjectives = localStorage.getItem(STORAGE_KEYS.V2_OBJECTIVES);
+      const savedStakeholders = localStorage.getItem(STORAGE_KEYS.V2_STAKEHOLDERS);
+      const savedMilestones = localStorage.getItem(STORAGE_KEYS.V2_MILESTONES);
+
+      if (savedCompanies && savedAccounts) {
+        return {
+          schemaVersion: 2,
+          profile: savedProfile ? JSON.parse(savedProfile) : defaultUserProfile,
+          companies: JSON.parse(savedCompanies),
+          accounts: JSON.parse(savedAccounts),
+          objectives: savedObjectives ? JSON.parse(savedObjectives) : sampleObjectives,
+          stakeholders: savedStakeholders ? JSON.parse(savedStakeholders) : sampleStakeholders,
+          milestones: savedMilestones ? JSON.parse(savedMilestones) : sampleMilestones
+        };
+      }
+    }
+
+    // 2. Next, check for legacy v1 state to migrate
+    const legacyAccountsRaw = localStorage.getItem(STORAGE_KEYS.LEGACY_ACCOUNTS);
+    if (legacyAccountsRaw) {
+      try {
+        const legacyProfileRaw = localStorage.getItem(STORAGE_KEYS.LEGACY_PROFILE);
+        const legacyObjectivesRaw = localStorage.getItem(STORAGE_KEYS.LEGACY_OBJECTIVES);
+        const legacyStakeholdersRaw = localStorage.getItem(STORAGE_KEYS.LEGACY_STAKEHOLDERS);
+        const legacyMilestonesRaw = localStorage.getItem(STORAGE_KEYS.LEGACY_MILESTONES);
+
+        const legacyData = {
+          profile: legacyProfileRaw ? JSON.parse(legacyProfileRaw) : defaultUserProfile,
+          accounts: JSON.parse(legacyAccountsRaw),
+          objectives: legacyObjectivesRaw ? JSON.parse(legacyObjectivesRaw) : sampleObjectives,
+          stakeholders: legacyStakeholdersRaw ? JSON.parse(legacyStakeholdersRaw) : sampleStakeholders,
+          milestones: legacyMilestonesRaw ? JSON.parse(legacyMilestonesRaw) : sampleMilestones
+        };
+
+        // Run non-destructive migration
+        const migrated = migrateLegacyState(legacyData);
+
+        // Validation before promotion: Ensure valid companies and accounts
+        if (Array.isArray(migrated.companies) && migrated.companies.length > 0 && Array.isArray(migrated.accounts)) {
+          // Two-phase promotion: Write to isolated v2 keys.
+          // CRITICAL ROLLBACK SAFEGUARD: Legacy keys are NEVER deleted or overwritten.
+          localStorage.setItem(STORAGE_KEYS.V2_PROFILE, JSON.stringify(migrated.profile));
+          localStorage.setItem(STORAGE_KEYS.V2_COMPANIES, JSON.stringify(migrated.companies));
+          localStorage.setItem(STORAGE_KEYS.V2_ACCOUNTS, JSON.stringify(migrated.accounts));
+          localStorage.setItem(STORAGE_KEYS.V2_OBJECTIVES, JSON.stringify(migrated.objectives));
+          localStorage.setItem(STORAGE_KEYS.V2_STAKEHOLDERS, JSON.stringify(migrated.stakeholders));
+          localStorage.setItem(STORAGE_KEYS.V2_MILESTONES, JSON.stringify(migrated.milestones));
+          // Final promotion marker
+          localStorage.setItem(STORAGE_KEYS.V2_VERSION, '2');
+
+          return migrated;
+        }
+      } catch (migrationError) {
+        // Rollback strategy: if migration throws, fallback to intact legacy data without overwriting anything
+        console.error("Migration validation failed, rolling back to intact legacy v1 state", migrationError);
+        const legacyAccounts = JSON.parse(legacyAccountsRaw);
+        return {
+          schemaVersion: 2,
+          profile: defaultUserProfile,
+          companies: sampleCompanies,
+          accounts: legacyAccounts.map((a: any) => ({
+            ...a,
+            companyId: sampleCompanies[0]?.id || 'comp-1'
+          })),
+          objectives: sampleObjectives,
+          stakeholders: sampleStakeholders,
+          milestones: sampleMilestones
+        };
+      }
+    }
+
+    // 3. Fresh instance: seed normalized v2 defaults
     return {
-      profile: savedProfile ? JSON.parse(savedProfile) : defaultUserProfile,
-      accounts: savedAccounts ? JSON.parse(savedAccounts) : sampleAccounts,
-      objectives: savedObjectives ? JSON.parse(savedObjectives) : sampleObjectives,
-      stakeholders: savedStakeholders ? JSON.parse(savedStakeholders) : sampleStakeholders,
-      milestones: savedMilestones ? JSON.parse(savedMilestones) : sampleMilestones
+      schemaVersion: 2,
+      profile: defaultUserProfile,
+      companies: sampleCompanies,
+      accounts: sampleAccounts,
+      objectives: sampleObjectives,
+      stakeholders: sampleStakeholders,
+      milestones: sampleMilestones
     };
   } catch (e) {
-    console.error("Error reading from localStorage, using default sample data", e);
+    console.error("Error reading storage, using safe v2 default sample data", e);
     return {
+      schemaVersion: 2,
       profile: defaultUserProfile,
+      companies: sampleCompanies,
       accounts: sampleAccounts,
       objectives: sampleObjectives,
       stakeholders: sampleStakeholders,
@@ -302,18 +495,21 @@ export const getInitialState = () => {
 
 export const saveStateToLocalStorage = (state: {
   profile: UserProfile;
+  companies: CustomerCompany[];
   accounts: Account[];
   objectives: PrimaryObjective[];
   stakeholders: Stakeholder[];
   milestones: SuccessMilestone[];
 }) => {
   try {
-    localStorage.setItem('impactstream_profile', JSON.stringify(state.profile));
-    localStorage.setItem('impactstream_accounts', JSON.stringify(state.accounts));
-    localStorage.setItem('impactstream_objectives', JSON.stringify(state.objectives));
-    localStorage.setItem('impactstream_stakeholders', JSON.stringify(state.stakeholders));
-    localStorage.setItem('impactstream_milestones', JSON.stringify(state.milestones));
+    localStorage.setItem(STORAGE_KEYS.V2_VERSION, '2');
+    localStorage.setItem(STORAGE_KEYS.V2_PROFILE, JSON.stringify(state.profile));
+    localStorage.setItem(STORAGE_KEYS.V2_COMPANIES, JSON.stringify(state.companies));
+    localStorage.setItem(STORAGE_KEYS.V2_ACCOUNTS, JSON.stringify(state.accounts));
+    localStorage.setItem(STORAGE_KEYS.V2_OBJECTIVES, JSON.stringify(state.objectives));
+    localStorage.setItem(STORAGE_KEYS.V2_STAKEHOLDERS, JSON.stringify(state.stakeholders));
+    localStorage.setItem(STORAGE_KEYS.V2_MILESTONES, JSON.stringify(state.milestones));
   } catch (e) {
-    console.error("Error saving state to localStorage", e);
+    console.error("Error saving v2 state to localStorage", e);
   }
 };

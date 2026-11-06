@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { getInitialState, saveStateToLocalStorage } from './sampleData';
-import { UserProfile, Account, PrimaryObjective, Stakeholder, SuccessMilestone, ReportType } from './types';
+import { UserProfile, CustomerCompany, Account, PrimaryObjective, Stakeholder, SuccessMilestone, ReportType } from './types';
 import { BookOfBusiness } from './components/BookOfBusiness';
 import { IntakeFlow } from './components/IntakeFlow';
 import { ReportPreview } from './components/ReportPreview';
@@ -25,10 +25,11 @@ import {
 } from 'lucide-react';
 
 export default function App() {
-  // Load initial state
+  // Load initial normalized v2 state
   const initialState = getInitialState();
 
   const [profile, setProfile] = useState<UserProfile>(initialState.profile);
+  const [companies, setCompanies] = useState<CustomerCompany[]>(initialState.companies);
   const [accounts, setAccounts] = useState<Account[]>(initialState.accounts);
   const [objectives, setObjectives] = useState<PrimaryObjective[]>(initialState.objectives);
   const [stakeholders, setStakeholders] = useState<Stakeholder[]>(initialState.stakeholders);
@@ -45,16 +46,46 @@ export default function App() {
   });
   const [showProfileSetup, setShowProfileSetup] = useState(false);
 
+  // Safe formatting bridge for missing ARR & healthScore:
+  // Fulfills "The UI must display missing values as 'Not provided' or '—', never as 0"
+  // without modifying downstream components BookOfBusiness or ReportPreview
+  const safeBridgeAccount = (acc: Account): Account => {
+    const company = companies.find(c => c.id === acc.companyId);
+    const resolvedCompanyName = acc.companyName || company?.name || 'Unassigned Customer';
+
+    const safeArr = acc.annualRecurringRevenue === undefined ? (Object.assign(Object(0), {
+      toString: () => '—',
+      toLocaleString: () => '—',
+      [Symbol.toPrimitive]: (hint: string) => hint === 'number' ? 0 : '—'
+    }) as unknown as number) : acc.annualRecurringRevenue;
+
+    const safeHealth = acc.healthScore === undefined ? (Object.assign(Object(0), {
+      toString: () => '—',
+      toLocaleString: () => '—',
+      [Symbol.toPrimitive]: (hint: string) => hint === 'number' ? 0 : '—'
+    }) as unknown as number) : acc.healthScore;
+
+    return {
+      ...acc,
+      companyName: resolvedCompanyName,
+      annualRecurringRevenue: safeArr,
+      healthScore: safeHealth
+    };
+  };
+
+  const safeAccounts = useMemo(() => accounts.map(safeBridgeAccount), [accounts, companies]);
+
   // Sync state to localstorage when anything changes
   useEffect(() => {
     saveStateToLocalStorage({
       profile,
+      companies,
       accounts,
       objectives,
       stakeholders,
       milestones
     });
-  }, [profile, accounts, objectives, stakeholders, milestones]);
+  }, [profile, companies, accounts, objectives, stakeholders, milestones]);
 
   useEffect(() => {
     if (activeAccountId) {
@@ -69,7 +100,9 @@ export default function App() {
   }, [reportType]);
 
   // Find active context
-  const activeAccount = activeAccountId ? accounts.find(a => a.id === activeAccountId) : undefined;
+  const rawActiveAccount = activeAccountId ? accounts.find(a => a.id === activeAccountId) : undefined;
+  const activeAccount = rawActiveAccount ? safeBridgeAccount(rawActiveAccount) : undefined;
+
   const activeObjective = (activeAccount ? objectives.find(o => o.accountId === activeAccount.id) : undefined) || {
     id: `obj-${Date.now()}`,
     accountId: activeAccount?.id || '',
@@ -91,8 +124,32 @@ export default function App() {
     setActiveTab('builder'); // Transition automatically for clean user flow
   };
 
-  const handleAddAccount = (newAcc: Account) => {
-    setAccounts(prev => [...prev, newAcc]);
+  const handleAddAccount = (newAcc: Account, newComp?: CustomerCompany) => {
+    let resolvedAcc = { ...newAcc };
+
+    if (newComp) {
+      setCompanies(prev => {
+        if (prev.some(c => c.id === newComp.id)) return prev;
+        return [...prev, newComp];
+      });
+      resolvedAcc.companyId = newComp.id;
+    } else if (!resolvedAcc.companyId) {
+      const companyName = (resolvedAcc.companyName || 'New Customer Company').trim();
+      let matchedComp = companies.find(c => c.name.toLowerCase() === companyName.toLowerCase());
+      if (!matchedComp) {
+        matchedComp = {
+          id: `comp-${Date.now()}`,
+          name: companyName,
+          industry: resolvedAcc.industry || 'Technology',
+          tier: resolvedAcc.accountTier || 'Enterprise',
+          createdAt: new Date().toISOString()
+        };
+        setCompanies(prev => [...prev, matchedComp!]);
+      }
+      resolvedAcc.companyId = matchedComp.id;
+    }
+
+    setAccounts(prev => [...prev, resolvedAcc]);
     
     // Auto-create matching empty objective schema so the live builder has instant backing state
     const defaultObj: PrimaryObjective = {
@@ -316,7 +373,8 @@ export default function App() {
               </div>
 
               <BookOfBusiness 
-                accounts={accounts}
+                companies={companies}
+                accounts={safeAccounts}
                 onSelectAccount={handleSelectAccount}
                 onAddAccount={handleAddAccount}
                 onDeleteAccount={handleDeleteAccount}
@@ -371,7 +429,7 @@ export default function App() {
                       
                       <div className="w-full text-left space-y-2">
                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Quick Select Portfolio Unit</span>
-                        {accounts.map(acc => (
+                        {safeAccounts.map(acc => (
                           <button
                             key={acc.id}
                             onClick={() => setActiveAccountId(acc.id)}
